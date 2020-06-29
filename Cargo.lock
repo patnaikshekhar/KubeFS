@@ -653,6 +653,8 @@ dependencies = [
  "k8s-openapi",
  "kube",
  "kube-derive",
+ "libc",
+ "time 0.1.43",
 ]
 
 [[package]]

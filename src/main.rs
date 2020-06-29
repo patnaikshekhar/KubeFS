@@ -23,5 +23,6 @@ fn main() {
         .map(|o| o.as_ref())
         .collect::<Vec<&OsStr>>();
 
+    println!("Mounting to location {}", mount_path);
     fuse::mount(KubeFS, &mount_path, &options).unwrap();
 }
