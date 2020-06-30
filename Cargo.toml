@@ -11,6 +11,11 @@ clap = "2.33.1"
 fuse = "0.3.1"
 kube = "0.35.1"
 kube-derive = "0.35.1"
-k8s-openapi = { version = "0.8.0", default-features = false, features = ["v1_17"] }
+k8s-openapi = { version = "0.8.0", features = ["v1_18"] }
 libc = "0.2.51"
 time = "0.1"
+tokio = { version = "0.2.21", features = ["full"] }
+tokio-util = { version = "0.3.1", features = ["full"] }
+anyhow = "1.0.31"
+async-std = "1.6.2"
+

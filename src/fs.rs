@@ -1,13 +1,16 @@
-use fuse::{Filesystem, Request, ReplyDirectory, FileType, ReplyAttr, FileAttr, ReplyEntry};
+use fuse::{FileAttr, FileType, Filesystem, ReplyAttr, ReplyDirectory, ReplyEntry, Request};
 use libc::ENOENT;
-use time::Timespec;
 use std::ffi::OsStr;
+use time::Timespec;
 
 pub struct KubeFS;
 
-const TTL: Timespec = Timespec { sec: 1, nsec: 0 };                     // 1 second
+const TTL: Timespec = Timespec { sec: 1, nsec: 0 }; // 1 second
 
-const CREATE_TIME: Timespec = Timespec { sec: 1381237736, nsec: 0 };    // 2013-10-08 08:56
+const CREATE_TIME: Timespec = Timespec {
+    sec: 1381237736,
+    nsec: 0,
+}; // 2013-10-08 08:56
 
 const HELLO_DIR_ATTR: FileAttr = FileAttr {
     ino: 1,
@@ -25,8 +28,6 @@ const HELLO_DIR_ATTR: FileAttr = FileAttr {
     rdev: 0,
     flags: 0,
 };
-
-const HELLO_TXT_CONTENT: &'static str = "Hello World!\n";
 
 const HELLO_TXT_ATTR: FileAttr = FileAttr {
     ino: 2,
@@ -46,7 +47,6 @@ const HELLO_TXT_ATTR: FileAttr = FileAttr {
 };
 
 impl Filesystem for KubeFS {
-
     fn lookup(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
         if parent == 1 && name.to_str() == Some("hello.txt") {
             reply.entry(&TTL, &HELLO_TXT_ATTR, 0);
@@ -63,8 +63,14 @@ impl Filesystem for KubeFS {
         }
     }
 
-    fn readdir(&mut self, _req: &Request, ino: u64, _fh: u64, offset: i64, mut reply: ReplyDirectory) {
-
+    fn readdir(
+        &mut self,
+        _req: &Request,
+        ino: u64,
+        _fh: u64,
+        offset: i64,
+        mut reply: ReplyDirectory,
+    ) {
         if ino != 1 {
             reply.error(ENOENT);
             return;
