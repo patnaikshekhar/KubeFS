@@ -85,16 +85,11 @@ const CREATE_TIME: Timespec = Timespec {
 
 impl Filesystem for KubeFS {
     fn lookup(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
-        // if parent == 1 && name.to_str() == Some("hello.txt") {
-        //     reply.entry(&TTL, &HELLO_TXT_ATTR, 0);
-        // } else {
-        //     reply.error(ENOENT);
-        // }
         println!(" lookup parent is {} and name is {:?}", parent, name);
         
         let mut entry: Option<FileAttr> = None;
 
-        for namespace in self.namespaces.clone() {
+        for namespace in self.namespaces.to_owned() {
             if namespace.name.eq(&name.to_str().unwrap_or_default()) {
                 entry = Some(namespace.attrs); 
                 break;
