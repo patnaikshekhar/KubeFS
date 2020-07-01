@@ -25,16 +25,18 @@ fn main() {
         .value_of("mountpath")
         .expect("Mount path is a required parameter");
 
-    // let options = ["-o", "ro", "-o", "fsname=kubefs"]
-    //     .iter()
-    //     .map(|o| o.as_ref())
-    //     .collect::<Vec<&OsStr>>();
+    let options = ["-o", "ro", "-o", "fsname=kubefs"]
+        .iter()
+        .map(|o| o.as_ref())
+        .collect::<Vec<&OsStr>>();
 
     println!("Mounting to location {}", mount_path);
 
-    for n in kube.get_namespaces().unwrap() {
-        println!("Namespaces are {}", n);
-    }
+    let fs = KubeFS::new(kube);
 
-    // fuse::mount(KubeFS, &mount_path, &options).unwrap();
+    // for n in kube.get_namespaces().unwrap() {
+    //     println!("Namespaces are {}", n);
+    // }
+
+    fuse::mount(fs, &mount_path, &options).unwrap();
 }

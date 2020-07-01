@@ -1,9 +1,63 @@
+use crate::KubeClient;
 use fuse::{FileAttr, FileType, Filesystem, ReplyAttr, ReplyDirectory, ReplyEntry, Request};
 use libc::ENOENT;
 use std::ffi::OsStr;
 use time::Timespec;
 
-pub struct KubeFS;
+pub struct KubeFS {
+    client: KubeClient,
+    namespaces: Vec<FSNamespace>,
+}
+
+impl KubeFS {
+    pub fn new(client: KubeClient) -> Self {
+        KubeFS {
+            client: client,
+            namespaces: vec![]
+        }
+    }
+
+    fn populate_namespaces(&mut self) -> anyhow::Result<()> {
+        let ns = self.client.get_namespaces()?;
+        
+        let mut index = 1;
+
+        self.namespaces = vec![];
+
+        for namespace in ns {
+            index += 1;
+
+            self.namespaces.push(FSNamespace{
+                name: namespace,
+                attrs: FileAttr {
+                    ino: index + 2,
+                    size: 0,
+                    blocks: 0,
+                    atime: CREATE_TIME,
+                    mtime: CREATE_TIME,
+                    ctime: CREATE_TIME,
+                    crtime: CREATE_TIME,
+                    kind: FileType::Directory,
+                    perm: 0o755,
+                    nlink: 2,
+                    uid: 501,
+                    gid: 20,
+                    rdev: 0,
+                    flags: 0,
+                },
+            });
+
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone)]
+struct FSNamespace {
+    name: String,
+    attrs: FileAttr,
+}
 
 const TTL: Timespec = Timespec { sec: 1, nsec: 0 }; // 1 second
 
@@ -12,7 +66,114 @@ const CREATE_TIME: Timespec = Timespec {
     nsec: 0,
 }; // 2013-10-08 08:56
 
-const HELLO_DIR_ATTR: FileAttr = FileAttr {
+// const HELLO_TXT_ATTR: FileAttr = FileAttr {
+//     ino: 2,
+//     size: 13,
+//     blocks: 1,
+//     atime: CREATE_TIME,
+//     mtime: CREATE_TIME,
+//     ctime: CREATE_TIME,
+//     crtime: CREATE_TIME,
+//     kind: FileType::RegularFile,
+//     perm: 0o644,
+//     nlink: 1,
+//     uid: 501,
+//     gid: 20,
+//     rdev: 0,
+//     flags: 0,
+// };
+
+impl Filesystem for KubeFS {
+    fn lookup(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
+        // if parent == 1 && name.to_str() == Some("hello.txt") {
+        //     reply.entry(&TTL, &HELLO_TXT_ATTR, 0);
+        // } else {
+        //     reply.error(ENOENT);
+        // }
+        println!(" lookup parent is {} and name is {:?}", parent, name);
+        
+        let mut entry: Option<FileAttr> = None;
+
+        for namespace in self.namespaces.clone() {
+            if namespace.name.eq(&name.to_str().unwrap_or_default()) {
+                entry = Some(namespace.attrs); 
+                break;
+            }
+        }
+
+        match entry {
+            Some(e) => reply.entry(&TTL, &e, 0),
+            None => reply.error(ENOENT)
+        }
+        
+    }
+
+    fn getattr(&mut self, _req: &Request, ino: u64, reply: ReplyAttr) {
+
+        println!(" getattr Ino is {}", ino);
+
+        match ino {
+            1 => reply.attr(&TTL, &ROOT_DIR_ATTR),
+            _ => reply.attr(&TTL, &FileAttr {
+                ino: ino,
+                size: 0,
+                blocks: 0,
+                atime: CREATE_TIME,
+                mtime: CREATE_TIME,
+                ctime: CREATE_TIME,
+                crtime: CREATE_TIME,
+                kind: FileType::Directory,
+                perm: 0o755,
+                nlink: 2,
+                uid: 501,
+                gid: 20,
+                rdev: 0,
+                flags: 0,
+            }),
+        }
+    }
+
+    fn readdir(
+        &mut self,
+        _req: &Request,
+        ino: u64,
+        _fh: u64,
+        offset: i64,
+        mut reply: ReplyDirectory,
+    ) {
+        
+        println!(" readdir Ino is {}", ino);
+
+        if ino == 1 {
+
+            match self.populate_namespaces() {
+                Ok(()) => {
+                    let entries = self.namespaces.clone()
+                                    .into_iter()
+                                    .map(|ns| (ns.attrs.ino, FileType::Directory, ns.name));
+
+                    for (i, entry) in entries.into_iter().enumerate().skip(offset as usize) {
+                        reply.add(entry.0, (i + 2) as i64, entry.1, entry.2);
+                    }
+                    reply.ok()
+                }
+                Err(_) => reply.error(ENOENT),
+            }
+        } else {
+            let entries = vec![
+                (ino, FileType::Directory, "."),
+                (ino, FileType::Directory, ".."),
+            ];
+
+            for (i, entry) in entries.into_iter().enumerate().skip(offset as usize) {
+                reply.add(entry.0, i as i64, entry.1, entry.2);
+            }
+            reply.ok();
+        }
+    }
+}
+
+const ROOT_DIR_ATTR: FileAttr = FileAttr {
     ino: 1,
     size: 0,
     blocks: 0,
@@ -28,64 +189,3 @@ const HELLO_DIR_ATTR: FileAttr = FileAttr {
     rdev: 0,
     flags: 0,
 };
-
-const HELLO_TXT_ATTR: FileAttr = FileAttr {
-    ino: 2,
-    size: 13,
-    blocks: 1,
-    atime: CREATE_TIME,
-    mtime: CREATE_TIME,
-    ctime: CREATE_TIME,
-    crtime: CREATE_TIME,
-    kind: FileType::RegularFile,
-    perm: 0o644,
-    nlink: 1,
-    uid: 501,
-    gid: 20,
-    rdev: 0,
-    flags: 0,
-};
-
-impl Filesystem for KubeFS {
-    fn lookup(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
-        if parent == 1 && name.to_str() == Some("hello.txt") {
-            reply.entry(&TTL, &HELLO_TXT_ATTR, 0);
-        } else {
-            reply.error(ENOENT);
-        }
-    }
-
-    fn getattr(&mut self, _req: &Request, ino: u64, reply: ReplyAttr) {
-        match ino {
-            1 => reply.attr(&TTL, &HELLO_DIR_ATTR),
-            2 => reply.attr(&TTL, &HELLO_TXT_ATTR),
-            _ => reply.error(ENOENT),
-        }
-    }
-
-    fn readdir(
-        &mut self,
-        _req: &Request,
-        ino: u64,
-        _fh: u64,
-        offset: i64,
-        mut reply: ReplyDirectory,
-    ) {
-        if ino != 1 {
-            reply.error(ENOENT);
-            return;
-        }
-
-        let entries = vec![
-            (1, FileType::Directory, "."),
-            (1, FileType::Directory, ".."),
-            (2, FileType::RegularFile, "hello.txt"),
-        ];
-
-        for (i, entry) in entries.into_iter().enumerate().skip(offset as usize) {
-            // i + 1 means the index of the next entry
-            reply.add(entry.0, (i + 1) as i64, entry.1, entry.2);
-        }
-        reply.ok();
-    }
-}

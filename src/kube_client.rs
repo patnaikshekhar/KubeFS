@@ -1,28 +1,30 @@
-use async_std::task::block_on;
 use k8s_openapi::api::core::v1::Namespace;
 use kube::{
     api::{ListParams, Meta},
     Api, Client,
 };
+use tokio::runtime::Runtime;
 
 pub struct KubeClient {
     client: Client,
+    runtime: Runtime,
 }
 
 impl KubeClient {
     pub fn new() -> Self {
+        let mut runtime = Runtime::new().unwrap();
+
         KubeClient {
-            client: block_on(Client::try_default()).unwrap(),
+            client: runtime.block_on(Client::try_default()).unwrap(),
+            runtime: runtime,
         }
     }
 
-    pub fn get_namespaces(self) -> Result<Vec<String>, anyhow::Error> {
-        let namespaces: Api<Namespace> = Api::all(self.client);
+    pub fn get_namespaces(&mut self) -> Result<Vec<String>, anyhow::Error> {
+        let namespaces: Api<Namespace> = Api::all(self.client.clone());
         let lp = ListParams::default();
 
-        println!("Here 1");
-        let ns = block_on(namespaces.list(&lp))?;
-        println!("Here 2");
+        let ns = self.runtime.block_on(namespaces.list(&lp))?;
         let mut res: Vec<String> = vec![];
 
         for n in ns {
