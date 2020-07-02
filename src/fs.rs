@@ -4,6 +4,8 @@ use libc::ENOENT;
 use std::ffi::OsStr;
 use time::Timespec;
 
+const MAX_SUPPORTED_NAMESPACES : u64 = 1000;
+
 pub struct KubeFS {
     client: KubeClient,
     namespaces: Vec<FSNamespace>,
@@ -64,24 +66,7 @@ const TTL: Timespec = Timespec { sec: 1, nsec: 0 }; // 1 second
 const CREATE_TIME: Timespec = Timespec {
     sec: 1381237736,
     nsec: 0,
-}; // 2013-10-08 08:56
-
-// const HELLO_TXT_ATTR: FileAttr = FileAttr {
-//     ino: 2,
-//     size: 13,
-//     blocks: 1,
-//     atime: CREATE_TIME,
-//     mtime: CREATE_TIME,
-//     ctime: CREATE_TIME,
-//     crtime: CREATE_TIME,
-//     kind: FileType::RegularFile,
-//     perm: 0o644,
-//     nlink: 1,
-//     uid: 501,
-//     gid: 20,
-//     rdev: 0,
-//     flags: 0,
-// };
+};
 
 impl Filesystem for KubeFS {
     fn lookup(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
@@ -89,13 +74,32 @@ impl Filesystem for KubeFS {
         
         let mut entry: Option<FileAttr> = None;
 
-        for namespace in self.namespaces.to_owned() {
-            if namespace.name.eq(&name.to_str().unwrap_or_default()) {
-                entry = Some(namespace.attrs); 
-                break;
+        if parent == 1 {
+            for namespace in self.namespaces.to_owned() {
+                if namespace.name.eq(&name.to_str().unwrap_or_default()) {
+                    entry = Some(namespace.attrs); 
+                    break;
+                }
             }
+        } else if parent > MAX_SUPPORTED_NAMESPACES {
+            entry = Some(FileAttr {
+                ino: (parent * MAX_SUPPORTED_NAMESPACES) + 1,
+                size: 0,
+                blocks: 0,
+                atime: CREATE_TIME,
+                mtime: CREATE_TIME,
+                ctime: CREATE_TIME,
+                crtime: CREATE_TIME,
+                kind: FileType::Directory,
+                perm: 0o755,
+                nlink: 2,
+                uid: 501,
+                gid: 20,
+                rdev: 0,
+                flags: 0,
+            })
         }
-
+        
         match entry {
             Some(e) => reply.entry(&TTL, &e, 0),
             None => reply.error(ENOENT)
@@ -143,7 +147,7 @@ impl Filesystem for KubeFS {
 
             match self.populate_namespaces() {
                 Ok(()) => {
-                    let entries = self.namespaces.clone()
+                    let entries = self.namespaces.to_owned()
                                     .into_iter()
                                     .map(|ns| (ns.attrs.ino, FileType::Directory, ns.name));
 
@@ -156,12 +160,16 @@ impl Filesystem for KubeFS {
             }
         } else {
             let entries = vec![
-                (ino, FileType::Directory, "."),
-                (ino, FileType::Directory, ".."),
+                (1, FileType::Directory, "deployments"),
+                (2, FileType::Directory, "services"),
+                (3, FileType::Directory, "statefulsets"),
+                (4, FileType::Directory, "configmaps"),
+                (5, FileType::Directory, "secrets"),
+                (6, FileType::Directory, "pods"),
             ];
 
             for (i, entry) in entries.into_iter().enumerate().skip(offset as usize) {
-                reply.add(entry.0, i as i64, entry.1, entry.2);
+                reply.add(entry.0, (ino * MAX_SUPPORTED_NAMESPACES + i as u64) as i64, entry.1, entry.2);
             }
             reply.ok();
         }
