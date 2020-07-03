@@ -1,4 +1,5 @@
 mod fs;
+mod inode;
 mod kube_client;
 
 use clap::{App, Arg};
