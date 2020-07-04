@@ -1,4 +1,4 @@
-use crate::KubeClient;
+use crate::{inode::K8sInteractions, KubeClient};
 use fuse::{FileAttr, FileType, Filesystem, ReplyAttr, ReplyDirectory, ReplyEntry, Request};
 use libc::ENOENT;
 use std::ffi::OsStr;
@@ -7,14 +7,14 @@ use time::Timespec;
 const MAX_SUPPORTED_NAMESPACES: u64 = 10000;
 
 pub struct KubeFS {
-    client: KubeClient,
+    client: Box<dyn K8sInteractions>,
     namespaces: Vec<FSNamespace>,
 }
 
 impl KubeFS {
     pub fn new(client: KubeClient) -> Self {
         KubeFS {
-            client: client,
+            client: Box::new(client),
             namespaces: vec![],
         }
     }

@@ -1,3 +1,4 @@
+use crate::inode::K8sInteractions;
 use k8s_openapi::api::core::v1::Namespace;
 use kube::{
     api::{ListParams, Meta},
@@ -19,8 +20,10 @@ impl KubeClient {
             runtime: runtime,
         }
     }
+}
 
-    pub fn get_namespaces(&mut self) -> Result<Vec<String>, anyhow::Error> {
+impl K8sInteractions for KubeClient {
+    fn get_namespaces(&mut self) -> Result<Vec<String>, anyhow::Error> {
         let namespaces: Api<Namespace> = Api::all(self.client.clone());
         let lp = ListParams::default();
 
