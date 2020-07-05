@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 #[derive(Debug, Clone, Copy)]
 pub enum KubeFSLevel {
     root,
@@ -28,26 +30,36 @@ pub trait K8sInteractions {
 }
 
 pub struct KubeFSINodes {
-    inodes: Vec<KubeFSInode>,
+    inodes: HashMap<u64, KubeFSInode>,
     client: Box<dyn K8sInteractions>,
 }
 
 impl KubeFSINodes {
     pub fn new(client: Box<dyn K8sInteractions>) -> Self {
-        KubeFSINodes {
-            inodes: vec![KubeFSInode {
+        let mut inodes = HashMap::new();
+        inodes.insert(
+            1,
+            KubeFSInode {
                 ino: 1,
                 parent: None,
                 name: String::from("Root"),
                 level: KubeFSLevel::root,
-            }],
+            },
+        );
+
+        KubeFSINodes {
+            inodes: inodes,
             client: client,
         }
     }
 
     pub fn fetch_child_nodes_for_node(&mut self, inode: &KubeFSInode) {
         match inode.level {
-            root => {}
+            root => {
+                // Delete all namespace nodes
+                // Fetch all namespaces
+                // Add Namespace inodes
+            }
             namespace => {}
             object => {}
             file => {}
@@ -56,7 +68,7 @@ impl KubeFSINodes {
 
     pub fn find_inode_by_parent(&self, parent: u64) -> Vec<KubeFSInode> {
         self.inodes
-            .iter()
+            .values()
             .filter(|inode| inode.parent == Some(parent))
             .cloned()
             .collect()
@@ -64,7 +76,7 @@ impl KubeFSINodes {
 
     pub fn lookup_inode_by_parent_and_name(&self, parent: u64, name: &str) -> Option<KubeFSInode> {
         self.inodes
-            .iter()
+            .values()
             .filter(|inode| inode.parent == Some(parent) && inode.name == name)
             .cloned()
             .nth(0)
@@ -88,26 +100,35 @@ mod tests {
     fn test_find_inode_by_parent_root() {
         let mut inodes = KubeFSINodes::new(Box::new(MockClient {}));
 
-        inodes.inodes.push(KubeFSInode {
-            ino: 2,
-            parent: Some(1),
-            name: String::from("default"),
-            level: KubeFSLevel::namespace,
-        });
+        inodes.inodes.insert(
+            2,
+            KubeFSInode {
+                ino: 2,
+                parent: Some(1),
+                name: String::from("default"),
+                level: KubeFSLevel::namespace,
+            },
+        );
 
-        inodes.inodes.push(KubeFSInode {
-            ino: 3,
-            parent: Some(1),
-            name: String::from("dev"),
-            level: KubeFSLevel::namespace,
-        });
+        inodes.inodes.insert(
+            3,
+            KubeFSInode {
+                ino: 3,
+                parent: Some(1),
+                name: String::from("dev"),
+                level: KubeFSLevel::namespace,
+            },
+        );
 
-        inodes.inodes.push(KubeFSInode {
-            ino: 4,
-            parent: Some(2),
-            name: String::from("prod"),
-            level: KubeFSLevel::namespace,
-        });
+        inodes.inodes.insert(
+            4,
+            KubeFSInode {
+                ino: 4,
+                parent: Some(2),
+                name: String::from("prod"),
+                level: KubeFSLevel::namespace,
+            },
+        );
 
         let child_inodes = inodes.find_inode_by_parent(1);
 
@@ -127,19 +148,25 @@ mod tests {
     fn test_lookup_inode_by_parent_and_name() {
         let mut inodes = KubeFSINodes::new(Box::new(MockClient {}));
 
-        inodes.inodes.push(KubeFSInode {
-            ino: 2,
-            parent: Some(1),
-            name: String::from("default"),
-            level: KubeFSLevel::namespace,
-        });
+        inodes.inodes.insert(
+            2,
+            KubeFSInode {
+                ino: 2,
+                parent: Some(1),
+                name: String::from("default"),
+                level: KubeFSLevel::namespace,
+            },
+        );
 
-        inodes.inodes.push(KubeFSInode {
-            ino: 3,
-            parent: Some(1),
-            name: String::from("dev"),
-            level: KubeFSLevel::namespace,
-        });
+        inodes.inodes.insert(
+            3,
+            KubeFSInode {
+                ino: 3,
+                parent: Some(1),
+                name: String::from("dev"),
+                level: KubeFSLevel::namespace,
+            },
+        );
 
         let inode = inodes.lookup_inode_by_parent_and_name(1, "dev");
 
@@ -162,7 +189,7 @@ mod tests {
     fn test_fetch_child_nodes_for_node_when_root() {
         let mut inodes = KubeFSINodes::new(Box::new(MockClient {}));
 
-        let root_node = inodes.inodes[0].clone();
+        let root_node = inodes.inodes[&1].clone();
 
         inodes.fetch_child_nodes_for_node(&root_node);
 
