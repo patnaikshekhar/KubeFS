@@ -53,33 +53,51 @@ impl KubeFSINodes {
         }
     }
 
-    pub fn fetch_child_nodes_for_node(&mut self, inode: &KubeFSInode) {
+    pub fn fetch_child_nodes_for_node(&mut self, inode: &KubeFSInode) -> Result<(), anyhow::Error> {
         match inode.level {
             root => {
                 // Delete all namespace nodes
+                self.delete_by_parent_ino(&inode.ino);
                 // Fetch all namespaces
+                let namespaces = self.client.get_namespaces()?;
+
                 // Add Namespace inodes
+                for (i, ns) in namespaces.iter().enumerate() {
+                    self.inodes.insert((i + 2) as u64, KubeFSInode{
+                        ino: (i + 2) as u64,
+                        name: ns.clone(),
+                        parent: Some(inode.ino),
+                        level: KubeFSLevel::namespace,
+                    });
+                }
             }
             namespace => {}
             object => {}
             file => {}
         }
+
+        Ok(())
     }
 
-    pub fn find_inode_by_parent(&self, parent: u64) -> Vec<KubeFSInode> {
+    pub fn find_inode_by_parent(&self, parent: &u64) -> Vec<KubeFSInode> {
         self.inodes
             .values()
-            .filter(|inode| inode.parent == Some(parent))
+            .filter(|inode| inode.parent == Some(*parent))
             .cloned()
             .collect()
     }
 
-    pub fn lookup_inode_by_parent_and_name(&self, parent: u64, name: &str) -> Option<KubeFSInode> {
+    pub fn lookup_inode_by_parent_and_name(&self, parent: &u64, name: &str) -> Option<KubeFSInode> {
         self.inodes
             .values()
-            .filter(|inode| inode.parent == Some(parent) && inode.name == name)
+            .filter(|inode| inode.parent == Some(*parent) && inode.name == name)
             .cloned()
             .nth(0)
+    }
+
+    fn delete_by_parent_ino(&mut self, parent: &u64) {
+        self.inodes
+            .retain(|_, inode| inode.parent != Some(*parent))
     }
 }
 
@@ -130,7 +148,7 @@ mod tests {
             },
         );
 
-        let child_inodes = inodes.find_inode_by_parent(1);
+        let child_inodes = inodes.find_inode_by_parent(&1);
 
         assert_eq!(child_inodes.len(), 2);
     }
@@ -139,7 +157,7 @@ mod tests {
     fn test_find_inode_by_parent_when_parent_does_not_exist() {
         let inodes = KubeFSINodes::new(Box::new(MockClient {}));
 
-        let child_inodes = inodes.find_inode_by_parent(2);
+        let child_inodes = inodes.find_inode_by_parent(&2);
 
         assert_eq!(child_inodes.len(), 0);
     }
@@ -168,7 +186,7 @@ mod tests {
             },
         );
 
-        let inode = inodes.lookup_inode_by_parent_and_name(1, "dev");
+        let inode = inodes.lookup_inode_by_parent_and_name(&1, "dev");
 
         assert_ne!(true, inode.is_none());
 
@@ -180,7 +198,7 @@ mod tests {
     #[test]
     fn test_lookup_inode_by_parent_when_no_node_exists() {
         let inodes = KubeFSINodes::new(Box::new(MockClient {}));
-        let inode = inodes.lookup_inode_by_parent_and_name(1, "dev");
+        let inode = inodes.lookup_inode_by_parent_and_name(&1, "dev");
 
         assert_eq!(true, inode.is_none());
     }
@@ -194,6 +212,45 @@ mod tests {
         inodes.fetch_child_nodes_for_node(&root_node);
 
         assert_eq!(inodes.inodes.len(), 4);
+    }
+
+    #[test]
+    fn test_delete_by_parent_ino() {
+        let mut inodes = KubeFSINodes::new(Box::new(MockClient {}));
+        inodes.inodes.insert(
+            2,
+            KubeFSInode {
+                ino: 2,
+                parent: Some(1),
+                name: String::from("default"),
+                level: KubeFSLevel::namespace,
+            },
+        );
+
+        inodes.inodes.insert(
+            3,
+            KubeFSInode {
+                ino: 3,
+                parent: Some(1),
+                name: String::from("dev"),
+                level: KubeFSLevel::namespace,
+            },
+        );
+
+        inodes.inodes.insert(
+            4,
+            KubeFSInode {
+                ino: 4,
+                parent: None,
+                name: String::from("dev"),
+                level: KubeFSLevel::namespace,
+            },
+        );
+
+        assert_eq!(inodes.inodes.len(), 4);
+
+        inodes.delete_by_parent_ino(&1);
+        assert_eq!(inodes.inodes.len(), 2);
     }
 
     struct MockClient;
