@@ -63,12 +63,15 @@ impl KubeFSINodes {
 
                 // Add Namespace inodes
                 for (i, ns) in namespaces.iter().enumerate() {
-                    self.inodes.insert((i + 2) as u64, KubeFSInode{
-                        ino: (i + 2) as u64,
-                        name: ns.clone(),
-                        parent: Some(inode.ino),
-                        level: KubeFSLevel::namespace,
-                    });
+                    self.inodes.insert(
+                        (i + 2) as u64,
+                        KubeFSInode {
+                            ino: (i + 2) as u64,
+                            name: ns.clone(),
+                            parent: Some(inode.ino),
+                            level: KubeFSLevel::namespace,
+                        },
+                    );
                 }
             }
             namespace => {}
@@ -96,8 +99,7 @@ impl KubeFSINodes {
     }
 
     fn delete_by_parent_ino(&mut self, parent: &u64) {
-        self.inodes
-            .retain(|_, inode| inode.parent != Some(*parent))
+        self.inodes.retain(|_, inode| inode.parent != Some(*parent))
     }
 }
 
@@ -209,9 +211,14 @@ mod tests {
 
         let root_node = inodes.inodes[&1].clone();
 
-        inodes.fetch_child_nodes_for_node(&root_node);
-
-        assert_eq!(inodes.inodes.len(), 4);
+        match inodes.fetch_child_nodes_for_node(&root_node) {
+            Ok(()) => {
+                assert_eq!(inodes.inodes.len(), 4);
+                println!("{:?}", inodes.inodes);
+                assert_eq!(inodes.inodes.get(&2).unwrap().name, "default");
+            }
+            Err(e) => assert_eq!(e.to_string(), ""),
+        }
     }
 
     #[test]
