@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, error::Error, fmt::{self, Display}};
 
 #[derive(Debug, Clone, Copy)]
 pub enum KubeFSLevel {
@@ -8,6 +8,8 @@ pub enum KubeFSLevel {
     file,
 }
 
+const MAX_SUPPORTED_NAMESPACES: u64 = 10000;
+
 const KUBEFS_OBJECTS: [&str; 6] = [
     "deployments",
     "services",
@@ -16,6 +18,19 @@ const KUBEFS_OBJECTS: [&str; 6] = [
     "configmaps",
     "secrets",
 ];
+
+#[derive(Debug)]
+enum KubeFSInodeError {
+    MissingInode
+}
+
+impl Error for KubeFSInodeError {}
+
+impl Display for KubeFSInodeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Missing Inode")
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct KubeFSInode {
@@ -27,6 +42,11 @@ pub struct KubeFSInode {
 
 pub trait K8sInteractions {
     fn get_namespaces(&mut self) -> Result<Vec<String>, anyhow::Error>;
+    fn get_objects(
+        &mut self,
+        namespace: &str,
+        object_name: &str,
+    ) -> Result<Vec<String>, anyhow::Error>;
 }
 
 pub struct KubeFSINodes {
@@ -55,7 +75,7 @@ impl KubeFSINodes {
 
     pub fn fetch_child_nodes_for_node(&mut self, inode: &KubeFSInode) -> Result<(), anyhow::Error> {
         match inode.level {
-            root => {
+            KubeFSLevel::root => {
                 // Delete all namespace nodes
                 self.delete_by_parent_ino(&inode.ino);
                 // Fetch all namespaces
@@ -74,9 +94,44 @@ impl KubeFSINodes {
                     );
                 }
             }
-            namespace => {}
-            object => {}
-            file => {}
+            KubeFSLevel::namespace => {
+                self.delete_by_parent_ino(&inode.ino);
+
+                for (i, o) in KUBEFS_OBJECTS.iter().enumerate() {
+                    self.inodes.insert(
+                        MAX_SUPPORTED_NAMESPACES + (i as u64),
+                        KubeFSInode {
+                            ino: MAX_SUPPORTED_NAMESPACES + (i as u64),
+                            name: o.to_string(),
+                            parent: Some(inode.ino),
+                            level: KubeFSLevel::object,
+                        },
+                    );
+                }
+            }
+            KubeFSLevel::object => {
+                self.delete_by_parent_ino(&inode.ino);
+
+                let parent_ino = inode.parent.ok_or(KubeFSInodeError::MissingInode)?;
+                let namespace_inode = self.inodes.get(&parent_ino).ok_or(KubeFSInodeError::MissingInode)?; 
+                let namespace_name = &namespace_inode.name;
+                let object_name = &inode.name;
+
+                let objects = self.client.get_objects(namespace_name, object_name)?;
+                
+                for (i, o) in objects.iter().enumerate() {
+                    self.inodes.insert(
+                        MAX_SUPPORTED_NAMESPACES + (KUBEFS_OBJECTS.len() + i) as u64,
+                        KubeFSInode {
+                            ino: MAX_SUPPORTED_NAMESPACES + (KUBEFS_OBJECTS.len() + i) as u64,
+                            name: o.clone(),
+                            parent: Some(inode.ino),
+                            level: KubeFSLevel::file,
+                        },
+                    );
+                }
+            }
+            KubeFSLevel::file => {}
         }
 
         Ok(())
@@ -206,22 +261,6 @@ mod tests {
     }
 
     #[test]
-    fn test_fetch_child_nodes_for_node_when_root() {
-        let mut inodes = KubeFSINodes::new(Box::new(MockClient {}));
-
-        let root_node = inodes.inodes[&1].clone();
-
-        match inodes.fetch_child_nodes_for_node(&root_node) {
-            Ok(()) => {
-                assert_eq!(inodes.inodes.len(), 4);
-                println!("{:?}", inodes.inodes);
-                assert_eq!(inodes.inodes.get(&2).unwrap().name, "default");
-            }
-            Err(e) => assert_eq!(e.to_string(), ""),
-        }
-    }
-
-    #[test]
     fn test_delete_by_parent_ino() {
         let mut inodes = KubeFSINodes::new(Box::new(MockClient {}));
         inodes.inodes.insert(
@@ -260,6 +299,68 @@ mod tests {
         assert_eq!(inodes.inodes.len(), 2);
     }
 
+    #[test]
+    fn test_fetch_child_nodes_for_node_when_root() -> Result<(), anyhow::Error> {
+        let mut inodes = KubeFSINodes::new(Box::new(MockClient {}));
+
+        let root_node = inodes.inodes[&1].clone();
+
+        inodes.fetch_child_nodes_for_node(&root_node)?;
+        assert_eq!(inodes.inodes.len(), 4);
+        println!("{:?}", inodes.inodes);
+        assert_eq!(inodes.inodes.get(&2).unwrap().name, "default");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_fetch_child_nodes_for_node_when_namespace() -> Result<(), anyhow::Error> {
+        let mut inodes = KubeFSINodes::new(Box::new(MockClient {}));
+
+        let root_node = inodes.inodes[&1].clone();
+
+        inodes.fetch_child_nodes_for_node(&root_node)?;
+
+        let default_namespace_node = inodes.inodes[&2].clone();
+
+        inodes.fetch_child_nodes_for_node(&default_namespace_node)?;
+
+        assert_eq!(inodes.inodes.len(), 4 + KUBEFS_OBJECTS.len());
+        assert_eq!(
+            inodes.inodes.get(&MAX_SUPPORTED_NAMESPACES).unwrap().name,
+            KUBEFS_OBJECTS[0]
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_fetch_child_nodes_for_node_when_object() -> Result<(), anyhow::Error> {
+        let mut inodes = KubeFSINodes::new(Box::new(MockClient {}));
+
+        let root_node = inodes.inodes[&1].clone();
+
+        inodes.fetch_child_nodes_for_node(&root_node)?;
+
+        let default_namespace_node = inodes.inodes[&2].clone();
+
+        inodes.fetch_child_nodes_for_node(&default_namespace_node)?;
+
+        let deployments_node = inodes.inodes[&MAX_SUPPORTED_NAMESPACES].clone();
+        inodes.fetch_child_nodes_for_node(&deployments_node)?;
+
+        // println!("Deployments index {:?}", MAX_SUPPORTED_NAMESPACES);
+        // println!("{:?}", inodes.inodes);
+
+        assert_eq!(inodes.inodes.len(), 7 + KUBEFS_OBJECTS.len());
+        assert_eq!(
+            inodes.inodes.get(&(MAX_SUPPORTED_NAMESPACES + KUBEFS_OBJECTS.len() as u64)).unwrap().name,
+            "deploy-1"
+        );
+
+        Ok(())
+    }
+
     struct MockClient;
 
     impl K8sInteractions for MockClient {
@@ -269,6 +370,22 @@ mod tests {
                 String::from("dev"),
                 String::from("prod"),
             ]);
+        }
+
+        fn get_objects(
+            &mut self,
+            namespace: &str,
+            object_name: &str,
+        ) -> Result<Vec<String>, anyhow::Error> {
+            if namespace == "default" && object_name == "deployments" {
+                Ok(vec![
+                    String::from("deploy-1"),
+                    String::from("deploy-2"),
+                    String::from("deploy-3"),
+                ])
+            } else {
+                Ok(vec![])
+            }
         }
     }
 }

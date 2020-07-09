@@ -1,5 +1,7 @@
 use crate::inode::K8sInteractions;
-use k8s_openapi::api::core::v1::Namespace;
+use k8s_openapi::api::core::v1::{Pod, Namespace, Service};
+use k8s_openapi::api::apps::v1::{StatefulSet, Deployment};
+
 use kube::{
     api::{ListParams, Meta},
     Api, Client,
@@ -20,6 +22,15 @@ impl KubeClient {
             runtime: runtime,
         }
     }
+
+    async fn get_objects(&mut self, namespace: &str, x: T) -> Result<Vec<String> {
+        let objects: Api<T> = Api::namespaced(self.client.clone(), namespace);
+        let lp = ListParams::default();
+
+        let objectList = objects.list(lp).await?;
+
+        Ok(objectList.iter().map(|o| { Meta::name(o) }))
+    }
 }
 
 impl K8sInteractions for KubeClient {
@@ -36,5 +47,13 @@ impl K8sInteractions for KubeClient {
         }
 
         Ok(res)
+    }
+
+    fn get_objects(
+        &mut self,
+        namespace: &str,
+        object_name: &str,
+    ) -> Result<Vec<String>, anyhow::Error> {
+        unimplemented!()
     }
 }
