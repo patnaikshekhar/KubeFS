@@ -1,8 +1,12 @@
 use crate::inode::K8sInteractions;
-use k8s_openapi::api::apps::v1::{Deployment, StatefulSet};
-use k8s_openapi::api::core::v1::{Namespace, Pod, Service};
+use k8s_openapi::{
+    api::{
+        apps::v1::{Deployment, StatefulSet},
+        core::v1::{ConfigMap, Namespace, Pod, Secret, Service},
+    },
+    Resource,
+};
 
-use k8s_openapi::Resource;
 use serde::de::DeserializeOwned;
 use std::clone::Clone;
 
@@ -28,31 +32,17 @@ impl KubeClient {
         }
     }
 
-    // async fn get_objects(&mut self, namespace: &str, objects: Api<Resource>) -> anyhow::Result<Vec<String>> {
-    //     // let objects: Api<T> = Api::namespaced(self.client.clone(), namespace);
-
-    //     let lp = ListParams::default();
-
-    //     let objectList = objects.list(lp).await?;
-
-    //     Ok(objectList.iter().map(|o| { Meta::name(o) }))
-    // }
-}
-
-struct KubeObject<T: Resource + Clone + DeserializeOwned + Meta> {
-    x: T,
-    client: Client,
-}
-
-impl<T: Resource + Clone + DeserializeOwned + Meta> KubeObject<T> {
-    async fn get_objects(&self, namespace: &str) -> Result<Vec<String>, anyhow::Error> {
+    fn get_object_names<T: Resource + Clone + DeserializeOwned + Meta>(
+        &mut self,
+        namespace: &str,
+    ) -> Result<Vec<String>, anyhow::Error> {
         let objects: Api<T> = Api::<T>::namespaced(self.client.clone(), namespace);
 
         let lp = ListParams::default();
 
-        let objectList = objects.list(&lp).await?;
+        let object_list = self.runtime.block_on(objects.list(&lp))?;
 
-        Ok(objectList.iter().map(|o| Meta::name(o)).collect())
+        Ok(object_list.iter().map(|o| Meta::name(o)).collect())
     }
 }
 
@@ -77,21 +67,16 @@ impl K8sInteractions for KubeClient {
         namespace: &str,
         object_name: &str,
     ) -> Result<Vec<String>, anyhow::Error> {
-        let lp = ListParams::default();
-        // objectList.iter().map(|o| { Meta::name(o) })
-
-        match object_name {
-            "deployments" => {
-                let objects = Api::<Deployment>::namespaced(self.client.clone(), namespace);
-                let objectList = self.runtime.block_on(objects.list(&lp))?;
-            }
-            "services" => {
-                let objects = Api::<Service>::namespaced(self.client.clone(), namespace);
-                let objectList = self.runtime.block_on(objects.list(&lp))?;
-            }
-            _ => {}
+        let res = match object_name {
+            "deployments" => self.get_object_names::<Deployment>(namespace)?,
+            "pods" => self.get_object_names::<Pod>(namespace)?,
+            "services" => self.get_object_names::<Service>(namespace)?,
+            "statefulsets" => self.get_object_names::<StatefulSet>(namespace)?,
+            "configmaps" => self.get_object_names::<ConfigMap>(namespace)?,
+            "secrets" => self.get_object_names::<Secret>(namespace)?,
+            _ => vec![],
         };
 
-        Ok(vec![])
+        Ok(res)
     }
 }

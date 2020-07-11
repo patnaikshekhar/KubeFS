@@ -35,9 +35,5 @@ fn main() {
 
     let fs = KubeFS::new(kube);
 
-    // for n in kube.get_namespaces().unwrap() {
-    //     println!("Namespaces are {}", n);
-    // }
-
     fuse::mount(fs, &mount_path, &options).unwrap();
 }
