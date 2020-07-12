@@ -1,4 +1,7 @@
-use crate::{inode::KubeFSINodes, KubeClient};
+use crate::{
+    inode::{KubeFSINodes, KubeFSLevel},
+    KubeClient,
+};
 use fuse::{FileAttr, FileType, Filesystem, ReplyAttr, ReplyDirectory, ReplyEntry, Request};
 use libc::ENOENT;
 use std::ffi::OsStr;
@@ -17,40 +20,6 @@ impl KubeFS {
             namespaces: vec![],
             inodes: KubeFSINodes::new(Box::new(client)),
         }
-    }
-
-    fn populate_namespaces(&mut self) -> anyhow::Result<()> {
-        let ns = self.client.get_namespaces()?;
-
-        let mut index = 1;
-
-        self.namespaces = vec![];
-
-        for namespace in ns {
-            index += 1;
-
-            self.namespaces.push(FSNamespace {
-                name: namespace,
-                attrs: FileAttr {
-                    ino: index + 2,
-                    size: 0,
-                    blocks: 0,
-                    atime: CREATE_TIME,
-                    mtime: CREATE_TIME,
-                    ctime: CREATE_TIME,
-                    crtime: CREATE_TIME,
-                    kind: FileType::Directory,
-                    perm: 0o755,
-                    nlink: 2,
-                    uid: 501,
-                    gid: 20,
-                    rdev: 0,
-                    flags: 0,
-                },
-            });
-        }
-
-        Ok(())
     }
 }
 
@@ -71,64 +40,72 @@ impl Filesystem for KubeFS {
     fn lookup(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
         println!(" lookup parent is {} and name is {:?}", parent, name);
 
-        let mut entry: Option<FileAttr> = None;
-
-        if parent == 1 {
-            for namespace in self.namespaces.to_owned() {
-                if namespace.name.eq(&name.to_str().unwrap_or_default()) {
-                    entry = Some(namespace.attrs);
-                    break;
-                }
+        if let Some(name) = name.to_str() {
+            let inode = self.inodes.lookup_inode_by_parent_and_name(&parent, name);
+            if let Some(inode) = inode {
+                reply.entry(
+                    &TTL,
+                    &FileAttr {
+                        ino: inode.ino,
+                        size: 0,
+                        blocks: 0,
+                        atime: CREATE_TIME,
+                        mtime: CREATE_TIME,
+                        ctime: CREATE_TIME,
+                        crtime: CREATE_TIME,
+                        kind: match inode.level {
+                            KubeFSLevel::file => FileType::RegularFile,
+                            _ => FileType::Directory,
+                        },
+                        perm: 0o755,
+                        nlink: 2,
+                        uid: 501,
+                        gid: 20,
+                        rdev: 0,
+                        flags: 0,
+                    },
+                    0,
+                )
+            } else {
+                reply.error(ENOENT)
             }
-        } else if parent > MAX_SUPPORTED_NAMESPACES {
-            entry = Some(FileAttr {
-                ino: (parent * MAX_SUPPORTED_NAMESPACES) + 1,
-                size: 0,
-                blocks: 0,
-                atime: CREATE_TIME,
-                mtime: CREATE_TIME,
-                ctime: CREATE_TIME,
-                crtime: CREATE_TIME,
-                kind: FileType::Directory,
-                perm: 0o755,
-                nlink: 2,
-                uid: 501,
-                gid: 20,
-                rdev: 0,
-                flags: 0,
-            })
-        }
-
-        match entry {
-            Some(e) => reply.entry(&TTL, &e, 0),
-            None => reply.error(ENOENT),
+        } else {
+            reply.error(ENOENT)
         }
     }
 
     fn getattr(&mut self, _req: &Request, ino: u64, reply: ReplyAttr) {
         println!(" getattr Ino is {}", ino);
 
-        match ino {
-            1 => reply.attr(&TTL, &ROOT_DIR_ATTR),
-            _ => reply.attr(
-                &TTL,
-                &FileAttr {
-                    ino: ino,
-                    size: 0,
-                    blocks: 0,
-                    atime: CREATE_TIME,
-                    mtime: CREATE_TIME,
-                    ctime: CREATE_TIME,
-                    crtime: CREATE_TIME,
-                    kind: FileType::Directory,
-                    perm: 0o755,
-                    nlink: 2,
-                    uid: 501,
-                    gid: 20,
-                    rdev: 0,
-                    flags: 0,
-                },
-            ),
+        let inode = self.inodes.get_inode(&ino);
+
+        match inode {
+            Some(inode) => {
+                let level = inode.level;
+                reply.attr(
+                    &TTL,
+                    &FileAttr {
+                        ino: ino,
+                        size: 0,
+                        blocks: 0,
+                        atime: CREATE_TIME,
+                        mtime: CREATE_TIME,
+                        ctime: CREATE_TIME,
+                        crtime: CREATE_TIME,
+                        kind: match level {
+                            KubeFSLevel::file => FileType::RegularFile,
+                            _ => FileType::Directory,
+                        },
+                        perm: 0o755,
+                        nlink: 2,
+                        uid: 501,
+                        gid: 20,
+                        rdev: 0,
+                        flags: 0,
+                    },
+                )
+            }
+            None => reply.error(ENOENT),
         }
     }
 
@@ -137,47 +114,31 @@ impl Filesystem for KubeFS {
         _req: &Request,
         ino: u64,
         _fh: u64,
-        offset: i64,
+        _offset: i64,
         mut reply: ReplyDirectory,
     ) {
         println!(" readdir Ino is {}", ino);
 
-        if ino == 1 {
-            match self.populate_namespaces() {
-                Ok(()) => {
-                    let entries = self
-                        .namespaces
-                        .to_owned()
-                        .into_iter()
-                        .map(|ns| (ns.attrs.ino, FileType::Directory, ns.name));
+        let inode = self.inodes.get_inode(&ino);
 
-                    for (i, entry) in entries.into_iter().enumerate().skip(offset as usize) {
-                        reply.add(entry.0, (i + 2) as i64, entry.1, entry.2);
-                    }
-                    reply.ok()
+        match inode {
+            Some(inode) => {
+                self.inodes.fetch_child_nodes_for_node(&inode);
+                let child_inodes = self.inodes.find_inode_by_parent(&ino);
+                for inode in &child_inodes {
+                    reply.add(
+                        ino,
+                        inode.ino as i64,
+                        match inode.level {
+                            KubeFSLevel::file => FileType::RegularFile,
+                            _ => FileType::Directory,
+                        },
+                        inode.name,
+                    );
                 }
-                Err(_) => reply.error(ENOENT),
             }
-        } else {
-            let entries = vec![
-                (1, FileType::Directory, "deployments"),
-                (2, FileType::Directory, "services"),
-                (3, FileType::Directory, "statefulsets"),
-                (4, FileType::Directory, "configmaps"),
-                (5, FileType::Directory, "secrets"),
-                (6, FileType::Directory, "pods"),
-            ];
-
-            for (i, entry) in entries.into_iter().enumerate().skip(offset as usize) {
-                reply.add(
-                    entry.0,
-                    (ino * MAX_SUPPORTED_NAMESPACES + i as u64) as i64,
-                    entry.1,
-                    entry.2,
-                );
-            }
-            reply.ok();
-        }
+            None => reply.error(ENOENT),
+        };
     }
 }
 

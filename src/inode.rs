@@ -1,4 +1,8 @@
-use std::{collections::HashMap, error::Error, fmt::{self, Display}};
+use std::{
+    collections::HashMap,
+    error::Error,
+    fmt::{self, Display},
+};
 
 #[derive(Debug, Clone, Copy)]
 pub enum KubeFSLevel {
@@ -21,7 +25,7 @@ const KUBEFS_OBJECTS: [&str; 6] = [
 
 #[derive(Debug)]
 enum KubeFSInodeError {
-    MissingInode
+    MissingInode,
 }
 
 impl Error for KubeFSInodeError {}
@@ -34,10 +38,10 @@ impl Display for KubeFSInodeError {
 
 #[derive(Debug, Clone)]
 pub struct KubeFSInode {
-    ino: u64,
-    parent: Option<u64>,
-    name: String,
-    level: KubeFSLevel,
+    pub ino: u64,
+    pub parent: Option<u64>,
+    pub name: String,
+    pub level: KubeFSLevel,
 }
 
 pub trait K8sInteractions {
@@ -50,7 +54,7 @@ pub trait K8sInteractions {
 }
 
 pub struct KubeFSINodes {
-    inodes: HashMap<u64, KubeFSInode>,
+    pub inodes: HashMap<u64, KubeFSInode>,
     client: Box<dyn K8sInteractions>,
 }
 
@@ -71,6 +75,10 @@ impl KubeFSINodes {
             inodes: inodes,
             client: client,
         }
+    }
+
+    pub fn get_inode(&self, ino: &u64) -> Option<&KubeFSInode> {
+        self.inodes.get(ino)
     }
 
     pub fn fetch_child_nodes_for_node(&mut self, inode: &KubeFSInode) -> Result<(), anyhow::Error> {
@@ -113,12 +121,15 @@ impl KubeFSINodes {
                 self.delete_by_parent_ino(&inode.ino);
 
                 let parent_ino = inode.parent.ok_or(KubeFSInodeError::MissingInode)?;
-                let namespace_inode = self.inodes.get(&parent_ino).ok_or(KubeFSInodeError::MissingInode)?; 
+                let namespace_inode = self
+                    .inodes
+                    .get(&parent_ino)
+                    .ok_or(KubeFSInodeError::MissingInode)?;
                 let namespace_name = &namespace_inode.name;
                 let object_name = &inode.name;
 
                 let objects = self.client.get_objects(namespace_name, object_name)?;
-                
+
                 for (i, o) in objects.iter().enumerate() {
                     self.inodes.insert(
                         MAX_SUPPORTED_NAMESPACES + (KUBEFS_OBJECTS.len() + i) as u64,
@@ -354,7 +365,11 @@ mod tests {
 
         assert_eq!(inodes.inodes.len(), 7 + KUBEFS_OBJECTS.len());
         assert_eq!(
-            inodes.inodes.get(&(MAX_SUPPORTED_NAMESPACES + KUBEFS_OBJECTS.len() as u64)).unwrap().name,
+            inodes
+                .inodes
+                .get(&(MAX_SUPPORTED_NAMESPACES + KUBEFS_OBJECTS.len() as u64))
+                .unwrap()
+                .name,
             "deploy-1"
         );
 
