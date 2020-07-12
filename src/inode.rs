@@ -81,7 +81,13 @@ impl KubeFSINodes {
         self.inodes.get(ino)
     }
 
-    pub fn fetch_child_nodes_for_node(&mut self, inode: &KubeFSInode) -> Result<(), anyhow::Error> {
+    pub fn fetch_child_nodes_for_node(&mut self, ino: &u64) -> Result<(), anyhow::Error> {
+        let inode = self
+            .inodes
+            .get(ino)
+            .ok_or(KubeFSInodeError::MissingInode)?
+            .clone();
+
         match inode.level {
             KubeFSLevel::root => {
                 // Delete all namespace nodes

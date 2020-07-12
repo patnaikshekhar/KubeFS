@@ -1,5 +1,5 @@
 use crate::{
-    inode::{KubeFSINodes, KubeFSLevel},
+    inode::{KubeFSINodes, KubeFSInode, KubeFSLevel},
     KubeClient,
 };
 use fuse::{FileAttr, FileType, Filesystem, ReplyAttr, ReplyDirectory, ReplyEntry, Request};
@@ -119,11 +119,14 @@ impl Filesystem for KubeFS {
     ) {
         println!(" readdir Ino is {}", ino);
 
-        let inode = self.inodes.get_inode(&ino);
+        // let mut inode: Option<&crate::inode::KubeFSInode>;
+        // {
+        //     inode = self.inodes.get_inode(&ino).clone();
+        // }
+        let res = self.inodes.fetch_child_nodes_for_node(&ino);
 
-        match inode {
-            Some(inode) => {
-                self.inodes.fetch_child_nodes_for_node(&inode);
+        match res {
+            Ok(_) => {
                 let child_inodes = self.inodes.find_inode_by_parent(&ino);
                 for inode in &child_inodes {
                     reply.add(
@@ -133,11 +136,11 @@ impl Filesystem for KubeFS {
                             KubeFSLevel::file => FileType::RegularFile,
                             _ => FileType::Directory,
                         },
-                        inode.name,
+                        &inode.name,
                     );
                 }
             }
-            None => reply.error(ENOENT),
+            Err(_) => reply.error(ENOENT),
         };
     }
 }
