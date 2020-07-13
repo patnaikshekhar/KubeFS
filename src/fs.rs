@@ -79,6 +79,7 @@ impl Filesystem for KubeFS {
 
         let inode = self.inodes.get_inode(&ino);
 
+        println!(" getattr Inode is {:?}", inode);
         match inode {
             Some(inode) => {
                 let level = inode.level;
@@ -119,19 +120,16 @@ impl Filesystem for KubeFS {
     ) {
         println!(" readdir Ino is {}", ino);
 
-        // let mut inode: Option<&crate::inode::KubeFSInode>;
-        // {
-        //     inode = self.inodes.get_inode(&ino).clone();
-        // }
         let res = self.inodes.fetch_child_nodes_for_node(&ino);
 
         match res {
             Ok(_) => {
                 let child_inodes = self.inodes.find_inode_by_parent(&ino);
-                for inode in &child_inodes {
+                println!("CHild nodes for {} are {:?}", ino, child_inodes);
+                for (i, inode) in child_inodes.iter().enumerate() {
                     reply.add(
-                        ino,
-                        inode.ino as i64,
+                        inode.ino,
+                        (i + 1) as i64,
                         match inode.level {
                             KubeFSLevel::file => FileType::RegularFile,
                             _ => FileType::Directory,
@@ -139,6 +137,7 @@ impl Filesystem for KubeFS {
                         &inode.name,
                     );
                 }
+                reply.ok();
             }
             Err(_) => reply.error(ENOENT),
         };
