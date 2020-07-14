@@ -2,7 +2,7 @@ use crate::inode::K8sInteractions;
 use k8s_openapi::{
     api::{
         apps::v1::{Deployment, StatefulSet},
-        core::v1::{ConfigMap, Namespace, Pod, Secret, Service},
+        core::v1::{ConfigMap, Namespace, Pod, Secret, Service, ServiceAccount},
     },
     Resource,
 };
@@ -74,6 +74,7 @@ impl K8sInteractions for KubeClient {
             "statefulsets" => self.get_object_names::<StatefulSet>(namespace)?,
             "configmaps" => self.get_object_names::<ConfigMap>(namespace)?,
             "secrets" => self.get_object_names::<Secret>(namespace)?,
+            "serviceaccounts" => self.get_object_names::<ServiceAccount>(namespace)?,
             _ => vec![],
         };
 

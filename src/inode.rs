@@ -6,25 +6,26 @@ use std::{
 
 #[derive(Debug, Clone, Copy)]
 pub enum KubeFSLevel {
-    root,
-    namespace,
-    object,
-    file,
+    Root,
+    Namespace,
+    Object,
+    File,
 }
 
 const MAX_SUPPORTED_NAMESPACES: u64 = 10000;
 
-const KUBEFS_OBJECTS: [&str; 6] = [
+const KUBEFS_OBJECTS: [&str; 7] = [
     "deployments",
     "services",
     "pods",
     "statefulsets",
     "configmaps",
     "secrets",
+    "serviceaccounts",
 ];
 
 #[derive(Debug)]
-enum KubeFSInodeError {
+pub enum KubeFSInodeError {
     MissingInode,
 }
 
@@ -67,7 +68,7 @@ impl KubeFSINodes {
                 ino: 1,
                 parent: None,
                 name: String::from("Root"),
-                level: KubeFSLevel::root,
+                level: KubeFSLevel::Root,
             },
         );
 
@@ -89,7 +90,7 @@ impl KubeFSINodes {
             .clone();
 
         match inode.level {
-            KubeFSLevel::root => {
+            KubeFSLevel::Root => {
                 // Delete all namespace nodes
                 self.delete_by_parent_ino(&inode.ino);
                 // Fetch all namespaces
@@ -103,12 +104,12 @@ impl KubeFSINodes {
                             ino: (i + 2) as u64,
                             name: ns.clone(),
                             parent: Some(inode.ino),
-                            level: KubeFSLevel::namespace,
+                            level: KubeFSLevel::Namespace,
                         },
                     );
                 }
             }
-            KubeFSLevel::namespace => {
+            KubeFSLevel::Namespace => {
                 self.delete_by_parent_ino(&inode.ino);
 
                 for (i, o) in KUBEFS_OBJECTS.iter().enumerate() {
@@ -118,12 +119,12 @@ impl KubeFSINodes {
                             ino: MAX_SUPPORTED_NAMESPACES + (i as u64),
                             name: o.to_string(),
                             parent: Some(inode.ino),
-                            level: KubeFSLevel::object,
+                            level: KubeFSLevel::Object,
                         },
                     );
                 }
             }
-            KubeFSLevel::object => {
+            KubeFSLevel::Object => {
                 self.delete_by_parent_ino(&inode.ino);
 
                 let parent_ino = inode.parent.ok_or(KubeFSInodeError::MissingInode)?;
@@ -143,12 +144,12 @@ impl KubeFSINodes {
                             ino: MAX_SUPPORTED_NAMESPACES + (KUBEFS_OBJECTS.len() + i) as u64,
                             name: o.clone(),
                             parent: Some(inode.ino),
-                            level: KubeFSLevel::file,
+                            level: KubeFSLevel::File,
                         },
                     );
                 }
             }
-            KubeFSLevel::file => {}
+            KubeFSLevel::File => {}
         }
 
         Ok(())
@@ -175,15 +176,6 @@ impl KubeFSINodes {
     }
 }
 
-// fn calculate_level_by_ino(ino: u64) -> KubeFSLevel {
-//   let r = ino % MAX_SUPPORTED_NAMESPACES;
-//   match (ino, r) {
-//       (1, _) => KubeFSLevel::Root,
-//       (_, 0..=5) => KubeFSLevel::Namespace,
-//       (_, _) => KubeFSLevel::Object,
-//   }
-// }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -198,7 +190,7 @@ mod tests {
                 ino: 2,
                 parent: Some(1),
                 name: String::from("default"),
-                level: KubeFSLevel::namespace,
+                level: KubeFSLevel::Namespace,
             },
         );
 
@@ -208,7 +200,7 @@ mod tests {
                 ino: 3,
                 parent: Some(1),
                 name: String::from("dev"),
-                level: KubeFSLevel::namespace,
+                level: KubeFSLevel::Namespace,
             },
         );
 
@@ -218,7 +210,7 @@ mod tests {
                 ino: 4,
                 parent: Some(2),
                 name: String::from("prod"),
-                level: KubeFSLevel::namespace,
+                level: KubeFSLevel::Namespace,
             },
         );
 
@@ -246,7 +238,7 @@ mod tests {
                 ino: 2,
                 parent: Some(1),
                 name: String::from("default"),
-                level: KubeFSLevel::namespace,
+                level: KubeFSLevel::Namespace,
             },
         );
 
@@ -256,7 +248,7 @@ mod tests {
                 ino: 3,
                 parent: Some(1),
                 name: String::from("dev"),
-                level: KubeFSLevel::namespace,
+                level: KubeFSLevel::Namespace,
             },
         );
 
@@ -286,7 +278,7 @@ mod tests {
                 ino: 2,
                 parent: Some(1),
                 name: String::from("default"),
-                level: KubeFSLevel::namespace,
+                level: KubeFSLevel::Namespace,
             },
         );
 
@@ -296,7 +288,7 @@ mod tests {
                 ino: 3,
                 parent: Some(1),
                 name: String::from("dev"),
-                level: KubeFSLevel::namespace,
+                level: KubeFSLevel::Namespace,
             },
         );
 
@@ -306,7 +298,7 @@ mod tests {
                 ino: 4,
                 parent: None,
                 name: String::from("dev"),
-                level: KubeFSLevel::namespace,
+                level: KubeFSLevel::Namespace,
             },
         );
 
