@@ -2,7 +2,7 @@ use crate::{
     inode::{KubeFSINodes, KubeFSInode, KubeFSLevel},
     KubeClient,
 };
-use fuse::{FileAttr, FileType, Filesystem, ReplyAttr, ReplyDirectory, ReplyEntry, Request};
+use fuse::{FileAttr, FileType, Filesystem, ReplyAttr, ReplyDirectory, ReplyEntry, Request, ReplyData};
 use libc::ENOENT;
 use std::ffi::OsStr;
 use time::Timespec;
@@ -65,11 +65,12 @@ impl Filesystem for KubeFS {
     }
 
     fn read(&mut self, _req: &Request, ino: u64, _fh: u64, offset: i64, _size: u32, reply: ReplyData) {
-
         let data = self.inodes.get_file_contents(&ino);
 
         match data {
-            Ok(data) => reply.data(&data.as_bytes()[offset as usize..]),
+            Ok(data) => {
+                reply.data(&data.as_bytes()[offset as usize..])
+            },
             Err(_) => reply.error(ENOENT)
         };
     }
@@ -108,7 +109,7 @@ impl Filesystem for KubeFS {
 fn create_file_attr(inode: &KubeFSInode) -> FileAttr {
     FileAttr {
         ino: inode.ino,
-        size: 0,
+        size: 10000,
         blocks: 0,
         atime: CREATE_TIME,
         mtime: CREATE_TIME,
