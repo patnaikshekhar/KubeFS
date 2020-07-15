@@ -27,6 +27,7 @@ const KUBEFS_OBJECTS: [&str; 7] = [
 #[derive(Debug)]
 pub enum KubeFSInodeError {
     MissingInode,
+    NotAFile,
 }
 
 impl Error for KubeFSInodeError {}
@@ -52,6 +53,12 @@ pub trait K8sInteractions {
         namespace: &str,
         object_name: &str,
     ) -> Result<Vec<String>, anyhow::Error>;
+    fn get_object_data_as_yaml(
+        &mut self,
+        name: &str,
+        namespace: &str,
+        object_name: &str,
+    ) -> anyhow::Result<String>;
 }
 
 pub struct KubeFSINodes {
@@ -82,7 +89,7 @@ impl KubeFSINodes {
         self.inodes.get(ino)
     }
 
-    pub fn fetch_child_nodes_for_node(&mut self, ino: &u64) -> Result<(), anyhow::Error> {
+    pub fn fetch_child_nodes_for_node(&mut self, ino: &u64) -> anyhow::Result<()> {
         let inode = self
             .inodes
             .get(ino)
@@ -169,6 +176,34 @@ impl KubeFSINodes {
             .filter(|inode| inode.parent == Some(*parent) && inode.name == name)
             .cloned()
             .nth(0)
+    }
+
+    pub fn get_file_contents(&mut self, ino: &u64) -> anyhow::Result<String> {
+        let inode = self
+            .get_inode(&ino)
+            .ok_or(KubeFSInodeError::MissingInode)?
+            .clone();
+
+        match inode.level {
+            KubeFSLevel::File => {
+                let object = self
+                    .get_inode(&inode.parent.ok_or(KubeFSInodeError::MissingInode)?)
+                    .ok_or(KubeFSInodeError::MissingInode)?.clone();
+
+                let namespace = self
+                    .get_inode(&object.parent.ok_or(KubeFSInodeError::MissingInode)?)
+                    .ok_or(KubeFSInodeError::MissingInode)?.clone();
+
+                let data = self.client.get_object_data_as_yaml(
+                    &inode.name,
+                    &namespace.name,
+                    &object.name,
+                )?;
+
+                Ok(data)
+            }
+            _ => Ok(String::new()),
+        }
     }
 
     fn delete_by_parent_ino(&mut self, parent: &u64) {
@@ -314,7 +349,7 @@ mod tests {
 
         let root_node = inodes.inodes[&1].clone();
 
-        inodes.fetch_child_nodes_for_node(&root_node)?;
+        inodes.fetch_child_nodes_for_node(&root_node.ino)?;
         assert_eq!(inodes.inodes.len(), 4);
         println!("{:?}", inodes.inodes);
         assert_eq!(inodes.inodes.get(&2).unwrap().name, "default");
@@ -328,11 +363,11 @@ mod tests {
 
         let root_node = inodes.inodes[&1].clone();
 
-        inodes.fetch_child_nodes_for_node(&root_node)?;
+        inodes.fetch_child_nodes_for_node(&root_node.ino)?;
 
         let default_namespace_node = inodes.inodes[&2].clone();
 
-        inodes.fetch_child_nodes_for_node(&default_namespace_node)?;
+        inodes.fetch_child_nodes_for_node(&default_namespace_node.ino)?;
 
         assert_eq!(inodes.inodes.len(), 4 + KUBEFS_OBJECTS.len());
         assert_eq!(
@@ -349,17 +384,14 @@ mod tests {
 
         let root_node = inodes.inodes[&1].clone();
 
-        inodes.fetch_child_nodes_for_node(&root_node)?;
+        inodes.fetch_child_nodes_for_node(&root_node.ino)?;
 
         let default_namespace_node = inodes.inodes[&2].clone();
 
-        inodes.fetch_child_nodes_for_node(&default_namespace_node)?;
+        inodes.fetch_child_nodes_for_node(&default_namespace_node.ino)?;
 
         let deployments_node = inodes.inodes[&MAX_SUPPORTED_NAMESPACES].clone();
-        inodes.fetch_child_nodes_for_node(&deployments_node)?;
-
-        // println!("Deployments index {:?}", MAX_SUPPORTED_NAMESPACES);
-        // println!("{:?}", inodes.inodes);
+        inodes.fetch_child_nodes_for_node(&deployments_node.ino)?;
 
         assert_eq!(inodes.inodes.len(), 7 + KUBEFS_OBJECTS.len());
         assert_eq!(
@@ -370,6 +402,34 @@ mod tests {
                 .name,
             "deploy-1"
         );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_get_yaml_for_file() -> Result<(), anyhow::Error> {
+        let mut inodes = KubeFSINodes::new(Box::new(MockClient {}));
+
+        let root_node = inodes.inodes[&1].clone();
+
+        inodes.fetch_child_nodes_for_node(&root_node.ino)?;
+
+        let default_namespace_node = inodes.inodes[&2].clone();
+
+        inodes.fetch_child_nodes_for_node(&default_namespace_node.ino)?;
+
+        let deployments_node = inodes.inodes[&MAX_SUPPORTED_NAMESPACES].clone();
+        inodes.fetch_child_nodes_for_node(&deployments_node.ino)?;
+
+        let deploy_1_node = inodes
+            .inodes
+            .get(&(MAX_SUPPORTED_NAMESPACES + KUBEFS_OBJECTS.len() as u64))
+            .ok_or(KubeFSInodeError::MissingInode)?
+            .clone();
+
+        let contents = inodes.get_file_contents(&deploy_1_node.ino)?;
+
+        assert_eq!(contents, "Data");
 
         Ok(())
     }
@@ -398,6 +458,19 @@ mod tests {
                 ])
             } else {
                 Ok(vec![])
+            }
+        }
+
+        fn get_object_data_as_yaml(
+            &mut self,
+            name: &str,
+            namespace: &str,
+            object_name: &str,
+        ) -> anyhow::Result<String> {
+            if name == "deploy-1" && namespace == "default" && object_name == "deployments" {
+                Ok(String::from("Data"))
+            } else {
+                Ok(String::new())
             }
         }
     }

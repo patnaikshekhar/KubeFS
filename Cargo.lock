@@ -665,6 +665,7 @@ dependencies = [
  "kube-derive",
  "libc",
  "serde",
+ "serde_yaml",
  "time 0.1.43",
  "tokio",
  "tokio-util",

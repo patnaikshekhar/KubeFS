@@ -64,6 +64,16 @@ impl Filesystem for KubeFS {
         }
     }
 
+    fn read(&mut self, _req: &Request, ino: u64, _fh: u64, offset: i64, _size: u32, reply: ReplyData) {
+
+        let data = self.inodes.get_file_contents(&ino);
+
+        match data {
+            Ok(data) => reply.data(&data.as_bytes()[offset as usize..]),
+            Err(_) => reply.error(ENOENT)
+        };
+    }
+
     fn readdir(
         &mut self,
         _req: &Request,

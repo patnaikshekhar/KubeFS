@@ -7,7 +7,7 @@ use k8s_openapi::{
     Resource,
 };
 
-use serde::de::DeserializeOwned;
+use serde::{de::DeserializeOwned, ser::Serialize};
 use std::clone::Clone;
 
 use kube::{
@@ -44,6 +44,18 @@ impl KubeClient {
 
         Ok(object_list.iter().map(|o| Meta::name(o)).collect())
     }
+
+    fn get_object<T: Resource + Clone + DeserializeOwned + Meta + Serialize>(
+        &mut self,
+        name: &str,
+        namespace: &str,
+    ) -> Result<String, anyhow::Error> {
+        let objects: Api<T> = Api::<T>::namespaced(self.client.clone(), namespace);
+
+        let o = self.runtime.block_on(objects.get(name))?;
+
+        Ok(serde_yaml::to_string(&o)?)
+    }
 }
 
 impl K8sInteractions for KubeClient {
@@ -79,5 +91,25 @@ impl K8sInteractions for KubeClient {
         };
 
         Ok(res)
+    }
+
+    fn get_object_data_as_yaml(
+        &mut self,
+        name: &str,
+        namespace: &str,
+        object_name: &str,
+    ) -> anyhow::Result<String> {
+        let data = match object_name {
+            "deployments" => self.get_object::<Deployment>(name, namespace)?,
+            "pods" => self.get_object::<Pod>(name, namespace)?,
+            "services" => self.get_object::<Service>(name, namespace)?,
+            "statefulsets" => self.get_object::<StatefulSet>(name, namespace)?,
+            "configmaps" => self.get_object::<ConfigMap>(name, namespace)?,
+            "secrets" => self.get_object::<Secret>(name, namespace)?,
+            "serviceaccounts" => self.get_object::<ServiceAccount>(name, namespace)?,
+            _ => String::new(),
+        };
+
+        Ok(data)
     }
 }
