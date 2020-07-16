@@ -8,10 +8,11 @@ use k8s_openapi::{
 };
 
 use serde::{de::DeserializeOwned, ser::Serialize};
-use std::clone::Clone;
+use serde_json::json;
+use std::{clone::Clone, ops::Add};
 
 use kube::{
-    api::{ListParams, Meta},
+    api::{ListParams, Meta, PostParams, DeleteParams},
     Api, Client,
 };
 
@@ -54,7 +55,7 @@ impl KubeClient {
 
         let o = self.runtime.block_on(objects.get(name))?;
 
-        Ok(serde_yaml::to_string(&o)?)
+        Ok(serde_yaml::to_string(&o)?.add("\n"))
     }
 }
 
@@ -111,5 +112,28 @@ impl K8sInteractions for KubeClient {
         };
 
         Ok(data)
+    }
+
+    fn create_namespace(&mut self, name: &str) -> anyhow::Result<()> {
+        let namespaces: Api<Namespace> = Api::all(self.client.clone());
+        let ns: Namespace = serde_json::from_value(json!({
+            "apiVersion": "v1",
+            "kind": "Namespace",
+            "metadata": { "name": name }
+        }))?;
+
+        let pp = PostParams::default();
+
+        self.runtime.block_on(namespaces.create(&pp, &ns))?;
+
+        Ok(())
+    }
+
+    fn remove_namespace(&mut self, name: &str) -> anyhow::Result<()> {
+        let namespaces: Api<Namespace> = Api::all(self.client.clone());
+        let dp = DeleteParams::default();
+        self.runtime.block_on(namespaces.delete(&name, &dp))?;
+
+        Ok(())
     }
 }

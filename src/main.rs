@@ -26,7 +26,7 @@ fn main() {
         .value_of("mountpath")
         .expect("Mount path is a required parameter");
 
-    let options = ["-o", "ro", "-o", "fsname=kubefs"]
+    let options = ["-o", "wro", "-o", "fsname=kubefs", "-o", "auto_unmount"]
         .iter()
         .map(|o| o.as_ref())
         .collect::<Vec<&OsStr>>();

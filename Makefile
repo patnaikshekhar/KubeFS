@@ -1,7 +1,6 @@
 .PHONY: build, run
 
 run: build
-	fusermount -uz $$HOME/kubefstest || true && \
 	./target/debug/kubefs $$HOME/kubefstest
 
 build:

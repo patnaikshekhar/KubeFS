@@ -2,7 +2,10 @@ use crate::{
     inode::{KubeFSINodes, KubeFSInode, KubeFSLevel},
     KubeClient,
 };
-use fuse::{FileAttr, FileType, Filesystem, ReplyAttr, ReplyDirectory, ReplyEntry, Request, ReplyData};
+use fuse::{
+    FileAttr, FileType, Filesystem, ReplyAttr, ReplyData, ReplyDirectory, ReplyEmpty, ReplyEntry,
+    Request,
+};
 use libc::ENOENT;
 use std::ffi::OsStr;
 use time::Timespec;
@@ -37,11 +40,7 @@ impl Filesystem for KubeFS {
         if let Some(name) = name.to_str() {
             let inode = self.inodes.lookup_inode_by_parent_and_name(&parent, name);
             if let Some(inode) = inode {
-                reply.entry(
-                    &TTL,
-                    &create_file_attr(&inode),
-                    0,
-                )
+                reply.entry(&TTL, &create_file_attr(&inode), 0)
             } else {
                 reply.error(ENOENT)
             }
@@ -54,24 +53,25 @@ impl Filesystem for KubeFS {
         let inode = self.inodes.get_inode(&ino);
 
         match inode {
-            Some(inode) => {
-                reply.attr(
-                    &TTL,
-                    &create_file_attr(&inode),
-                )
-            }
+            Some(inode) => reply.attr(&TTL, &create_file_attr(&inode)),
             None => reply.error(ENOENT),
         }
     }
 
-    fn read(&mut self, _req: &Request, ino: u64, _fh: u64, offset: i64, _size: u32, reply: ReplyData) {
+    fn read(
+        &mut self,
+        _req: &Request,
+        ino: u64,
+        _fh: u64,
+        offset: i64,
+        _size: u32,
+        reply: ReplyData,
+    ) {
         let data = self.inodes.get_file_contents(&ino);
 
         match data {
-            Ok(data) => {
-                reply.data(&data.as_bytes()[offset as usize..])
-            },
-            Err(_) => reply.error(ENOENT)
+            Ok(data) => reply.data(&data.as_bytes()[offset as usize..]),
+            Err(_) => reply.error(ENOENT),
         };
     }
 
@@ -103,6 +103,39 @@ impl Filesystem for KubeFS {
             }
             Err(_) => reply.error(ENOENT),
         };
+    }
+
+    fn mkdir(&mut self, _req: &Request, parent: u64, name: &OsStr, _mode: u32, reply: ReplyEntry) {
+        if let Some(name) = name.to_str() {
+            let res = self.inodes.create_object(name, &parent);
+
+            match res {
+                Ok(()) => {
+                    let inode = KubeFSInode {
+                        ino: 10000000,
+                        level: KubeFSLevel::Namespace,
+                        name: name.to_string(),
+                        parent: Some(parent),
+                    };
+
+                    reply.entry(&TTL, &create_file_attr(&inode), 0);
+                }
+                Err(_) => {
+                    reply.error(ENOENT);
+                }
+            };
+        }
+    }
+
+    fn rmdir(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEmpty) {
+        if let Some(name) = name.to_str() {
+            let res = self.inodes.delete_object(name, &parent);
+
+            match res {
+                Ok(()) => reply.ok(),
+                Err(_) => reply.error(ENOENT)
+            };
+        }
     }
 }
 

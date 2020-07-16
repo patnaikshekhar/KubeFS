@@ -59,6 +59,8 @@ pub trait K8sInteractions {
         namespace: &str,
         object_name: &str,
     ) -> anyhow::Result<String>;
+    fn create_namespace(&mut self, name: &str) -> anyhow::Result<()>;
+    fn remove_namespace(&mut self, name: &str) -> anyhow::Result<()>;
 }
 
 pub struct KubeFSINodes {
@@ -188,11 +190,13 @@ impl KubeFSINodes {
             KubeFSLevel::File => {
                 let object = self
                     .get_inode(&inode.parent.ok_or(KubeFSInodeError::MissingInode)?)
-                    .ok_or(KubeFSInodeError::MissingInode)?.clone();
+                    .ok_or(KubeFSInodeError::MissingInode)?
+                    .clone();
 
                 let namespace = self
                     .get_inode(&object.parent.ok_or(KubeFSInodeError::MissingInode)?)
-                    .ok_or(KubeFSInodeError::MissingInode)?.clone();
+                    .ok_or(KubeFSInodeError::MissingInode)?
+                    .clone();
 
                 let data = self.client.get_object_data_as_yaml(
                     &inode.name,
@@ -206,6 +210,38 @@ impl KubeFSINodes {
         }
     }
 
+    pub fn create_object(&mut self, name: &str, parent_ino: &u64) -> anyhow::Result<()> {
+        let inode = self
+            .get_inode(&parent_ino)
+            .ok_or(KubeFSInodeError::MissingInode)?
+            .clone();
+
+        match inode.level {
+            KubeFSLevel::Root => {
+                self.client.create_namespace(name)?;
+            }
+            _ => {}
+        };
+
+        Ok(())
+    }
+
+    pub fn delete_object(&mut self, name: &str, parent_ino: &u64) -> anyhow::Result<()> {
+        let inode = self
+            .get_inode(&parent_ino)
+            .ok_or(KubeFSInodeError::MissingInode)?
+            .clone();
+
+        match inode.level {
+            KubeFSLevel::Root => {
+                self.client.remove_namespace(name)?;
+            }
+            _ => {}
+        };
+
+        Ok(())
+    }
+
     fn delete_by_parent_ino(&mut self, parent: &u64) {
         self.inodes.retain(|_, inode| inode.parent != Some(*parent))
     }
@@ -217,7 +253,7 @@ mod tests {
 
     #[test]
     fn test_find_inode_by_parent_root() {
-        let mut inodes = KubeFSINodes::new(Box::new(MockClient {}));
+        let mut inodes = KubeFSINodes::new(Box::new(MockClient::new()));
 
         inodes.inodes.insert(
             2,
@@ -256,7 +292,7 @@ mod tests {
 
     #[test]
     fn test_find_inode_by_parent_when_parent_does_not_exist() {
-        let inodes = KubeFSINodes::new(Box::new(MockClient {}));
+        let inodes = KubeFSINodes::new(Box::new(MockClient::new()));
 
         let child_inodes = inodes.find_inode_by_parent(&2);
 
@@ -265,7 +301,7 @@ mod tests {
 
     #[test]
     fn test_lookup_inode_by_parent_and_name() {
-        let mut inodes = KubeFSINodes::new(Box::new(MockClient {}));
+        let mut inodes = KubeFSINodes::new(Box::new(MockClient::new()));
 
         inodes.inodes.insert(
             2,
@@ -298,7 +334,7 @@ mod tests {
 
     #[test]
     fn test_lookup_inode_by_parent_when_no_node_exists() {
-        let inodes = KubeFSINodes::new(Box::new(MockClient {}));
+        let inodes = KubeFSINodes::new(Box::new(MockClient::new()));
         let inode = inodes.lookup_inode_by_parent_and_name(&1, "dev");
 
         assert_eq!(true, inode.is_none());
@@ -306,7 +342,7 @@ mod tests {
 
     #[test]
     fn test_delete_by_parent_ino() {
-        let mut inodes = KubeFSINodes::new(Box::new(MockClient {}));
+        let mut inodes = KubeFSINodes::new(Box::new(MockClient::new()));
         inodes.inodes.insert(
             2,
             KubeFSInode {
@@ -345,7 +381,7 @@ mod tests {
 
     #[test]
     fn test_fetch_child_nodes_for_node_when_root() -> Result<(), anyhow::Error> {
-        let mut inodes = KubeFSINodes::new(Box::new(MockClient {}));
+        let mut inodes = KubeFSINodes::new(Box::new(MockClient::new()));
 
         let root_node = inodes.inodes[&1].clone();
 
@@ -359,7 +395,7 @@ mod tests {
 
     #[test]
     fn test_fetch_child_nodes_for_node_when_namespace() -> Result<(), anyhow::Error> {
-        let mut inodes = KubeFSINodes::new(Box::new(MockClient {}));
+        let mut inodes = KubeFSINodes::new(Box::new(MockClient::new()));
 
         let root_node = inodes.inodes[&1].clone();
 
@@ -380,7 +416,7 @@ mod tests {
 
     #[test]
     fn test_fetch_child_nodes_for_node_when_object() -> Result<(), anyhow::Error> {
-        let mut inodes = KubeFSINodes::new(Box::new(MockClient {}));
+        let mut inodes = KubeFSINodes::new(Box::new(MockClient::new()));
 
         let root_node = inodes.inodes[&1].clone();
 
@@ -408,7 +444,7 @@ mod tests {
 
     #[test]
     fn test_get_yaml_for_file() -> Result<(), anyhow::Error> {
-        let mut inodes = KubeFSINodes::new(Box::new(MockClient {}));
+        let mut inodes = KubeFSINodes::new(Box::new(MockClient::new()));
 
         let root_node = inodes.inodes[&1].clone();
 
@@ -434,7 +470,28 @@ mod tests {
         Ok(())
     }
 
-    struct MockClient;
+    #[test]
+    fn test_create_object_creates_namespace() -> Result<(), anyhow::Error> {
+        let client = MockClient::new();
+        let mut inodes = KubeFSINodes::new(Box::new(client));
+
+        inodes.create_object("test", &1)?;
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_create_object_does_not_create_object() -> Result<(), anyhow::Error> {
+        Ok(())
+    }
+
+    struct MockClient {}
+
+    impl MockClient {
+        pub fn new() -> Self {
+            MockClient {}
+        }
+    }
 
     impl K8sInteractions for MockClient {
         fn get_namespaces(&mut self) -> Result<Vec<String>, anyhow::Error> {
@@ -472,6 +529,14 @@ mod tests {
             } else {
                 Ok(String::new())
             }
+        }
+
+        fn create_namespace(&mut self, _name: &str) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        fn remove_namespace(&mut self, _name: &str) -> anyhow::Result<()> {
+            Ok(())
         }
     }
 }
