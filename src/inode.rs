@@ -210,7 +210,12 @@ impl KubeFSINodes {
         }
     }
 
-    pub fn create_object(&mut self, name: &str, parent_ino: &u64) -> anyhow::Result<()> {
+    pub fn create_object(
+        &mut self,
+        name: &str,
+        parent_ino: &u64,
+        data: &[u8],
+    ) -> anyhow::Result<()> {
         let inode = self
             .get_inode(&parent_ino)
             .ok_or(KubeFSInodeError::MissingInode)?
@@ -475,13 +480,8 @@ mod tests {
         let client = MockClient::new();
         let mut inodes = KubeFSINodes::new(Box::new(client));
 
-        inodes.create_object("test", &1)?;
+        inodes.create_object("test", &1, vec![])?;
 
-        Ok(())
-    }
-
-    #[test]
-    fn test_create_object_does_not_create_object() -> Result<(), anyhow::Error> {
         Ok(())
     }
 
