@@ -231,6 +231,10 @@ impl KubeFSINodes {
         Ok(())
     }
 
+    pub fn update_object(&mut self, name: &str, parent_ino: &u64) -> anyhow::Result<()> {
+        unimplemented!()
+    }
+
     pub fn delete_object(&mut self, name: &str, parent_ino: &u64) -> anyhow::Result<()> {
         let inode = self
             .get_inode(&parent_ino)
