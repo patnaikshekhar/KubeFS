@@ -57,6 +57,23 @@ impl KubeClient {
 
         Ok(serde_yaml::to_string(&o)?.add("\n"))
     }
+
+    fn update_object<T: Resource + Clone + DeserializeOwned + Meta + Serialize>(
+        &mut self,
+        name: &str,
+        namespace: &str,
+        data: &str,
+    ) -> anyhow::Result<()> {
+        let objects: Api<T> = Api::<T>::namespaced(self.client.clone(), namespace);
+
+        let pp = PostParams::default();
+        
+        let o : T = serde_yaml::from_str(data)?;
+
+        self.runtime.block_on(objects.replace(name, &pp, &o))?;
+
+        Ok(())
+    }
 }
 
 impl K8sInteractions for KubeClient {
@@ -92,6 +109,27 @@ impl K8sInteractions for KubeClient {
         };
 
         Ok(res)
+    }
+
+    fn update_object(
+        &mut self,
+        name: &str,
+        namespace: &str,
+        object_name: &str,
+        data: &str,
+    ) -> Result<(), anyhow::Error> {
+        match object_name {
+            "deployments" => self.update_object::<Deployment>(name, namespace, data)?,
+            "pods" => self.update_object::<Pod>(name, namespace, data)?,
+            "services" => self.update_object::<Service>(name, namespace, data)?,
+            "statefulsets" => self.update_object::<StatefulSet>(name, namespace, data)?,
+            "configmaps" => self.update_object::<ConfigMap>(name, namespace, data)?,
+            "secrets" => self.update_object::<Secret>(name, namespace, data)?,
+            "serviceaccounts" => self.update_object::<ServiceAccount>(name, namespace, data)?,
+            _ => {},
+        };
+
+        Ok(())
     }
 
     fn get_object_data_as_yaml(

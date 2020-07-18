@@ -7,9 +7,9 @@ use fuse::{
     ReplyEntry, ReplyWrite, Request,
 };
 use libc::ENOENT;
-use std::{ffi::OsStr, collections::HashMap};
+use std::{collections::HashMap, ffi::OsStr};
 use time::Timespec;
-use users::{get_current_uid, get_current_gid};
+use users::{get_current_gid, get_current_uid};
 
 pub struct KubeFS {
     inodes: KubeFSINodes,
@@ -28,32 +28,59 @@ impl KubeFS {
     pub fn new(client: KubeClient) -> Self {
         KubeFS {
             inodes: KubeFSINodes::new(Box::new(client)),
-            swap_files: HashMap::new()
+            swap_files: HashMap::new(),
         }
     }
 
     pub fn create_empty_swap_file(&mut self, name: &str) {
         let name = String::from(name);
-        self.swap_files.insert(name.clone(), SwapFile{
-            name: name.clone(),
-            data: vec![],
-            ino: SWAP_FILE_START_INO + (self.swap_files.len() as u64),
-        });
+        self.swap_files.insert(
+            name.clone(),
+            SwapFile {
+                name: name.clone(),
+                data: vec![],
+                ino: SWAP_FILE_START_INO + (self.swap_files.len() as u64),
+            },
+        );
     }
 
     pub fn create_swap_file_attr(&self, name: &str) -> FileAttr {
-
         let name = name.to_string();
         let swap_file = self.swap_files.get(&name).unwrap();
 
-        let inode = KubeFSInode{
+        let inode = KubeFSInode {
             ino: swap_file.ino,
             parent: None,
             name: swap_file.name.clone(),
             level: KubeFSLevel::File,
         };
-    
-        create_file_attr(&inode)
+
+        self.create_file_attr(&inode)
+    }
+
+    fn create_file_attr(&self, inode: &KubeFSInode) -> FileAttr {
+        FileAttr {
+            ino: inode.ino,
+            size: 10000,
+            blocks: 0,
+            atime: CREATE_TIME,
+            mtime: CREATE_TIME,
+            ctime: CREATE_TIME,
+            crtime: CREATE_TIME,
+            kind: match inode.level {
+                KubeFSLevel::File => FileType::RegularFile,
+                _ => FileType::Directory,
+            },
+            perm: match inode.level {
+                KubeFSLevel::File => 0o644,
+                _ => 0o755,
+            },
+            nlink: 2,
+            uid: get_current_uid(),
+            gid: get_current_gid(),
+            rdev: 0,
+            flags: 0,
+        }
     }
 }
 
@@ -72,16 +99,17 @@ const CREATE_TIME: Timespec = Timespec {
 
 impl Filesystem for KubeFS {
     fn lookup(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
-
-        println!("Lookup called with parent = {} and name = {:?}", parent, name);
+        println!(
+            "Lookup called with parent = {} and name = {:?}",
+            parent, name
+        );
 
         if let Some(name) = name.to_str() {
-
             // If swap file then return
             if name.contains("swp") {
                 if self.swap_files.get(name).is_some() {
                     reply.entry(&TTL, &self.create_swap_file_attr(&name), 0);
-                    return
+                    return;
                 }
             }
 
@@ -91,13 +119,13 @@ impl Filesystem for KubeFS {
                 let res = self.inodes.fetch_child_nodes_for_node(&parent);
                 if res.is_err() {
                     reply.error(ENOENT);
-                    return
+                    return;
                 }
                 inode = self.inodes.lookup_inode_by_parent_and_name(&parent, name);
             }
 
             if let Some(inode) = inode {
-                reply.entry(&TTL, &create_file_attr(&inode), 0)
+                reply.entry(&TTL, &self.create_file_attr(&inode), 0)
             } else {
                 reply.error(ENOENT)
             }
@@ -107,13 +135,12 @@ impl Filesystem for KubeFS {
     }
 
     fn getattr(&mut self, _req: &Request, ino: u64, reply: ReplyAttr) {
-
         println!("getattr called with ino = {}", ino);
 
         let inode = self.inodes.get_inode(&ino);
 
         match inode {
-            Some(inode) => reply.attr(&TTL, &create_file_attr(&inode)),
+            Some(inode) => reply.attr(&TTL, &self.create_file_attr(&inode)),
             None => reply.error(ENOENT),
         }
     }
@@ -181,7 +208,7 @@ impl Filesystem for KubeFS {
                         parent: Some(parent),
                     };
 
-                    reply.entry(&TTL, &create_file_attr(&inode), 0);
+                    reply.entry(&TTL, &self.create_file_attr(&inode), 0);
                 }
                 Err(_) => {
                     reply.error(ENOENT);
@@ -217,12 +244,14 @@ impl Filesystem for KubeFS {
             data.to_ascii_lowercase(),
             fh
         );
-        
-        // Find ino in nodes
-        // Write to K8s
 
-        // Find ino in swap
-        // Write to memory
+        let d = std::str::from_utf8(data);
+
+        if let Ok(data) = d {
+            // Find ino in nodes
+            // Write to K8s
+            self.inodes.update_object(&ino, data);
+        }
 
         reply.written(data.len() as u32);
     }
@@ -239,70 +268,27 @@ impl Filesystem for KubeFS {
         println!("Create called with parent = {}, name = {:?}", parent, name);
 
         if let Some(name) = name.to_str() {
-
             // If swap then add to swap files
             if name.contains("swp") {
                 self.create_empty_swap_file(name);
 
-                reply.created(
-                    &TTL,
-                    &self.create_swap_file_attr(&name),
-                    0,
-                    1,
-                    0o644,
-                );
+                reply.created(&TTL, &self.create_swap_file_attr(&name), 0, 1, 0o644);
             }
-            
         } else {
             reply.error(ENOENT);
         }
-        
     }
 
-    fn unlink(
-        &mut self, 
-        _req: &Request, 
-        parent: u64, 
-        name: &OsStr, 
-        reply: ReplyEmpty
-    ) {
+    fn unlink(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEmpty) {
         println!("Unlink called with parent = {}, name = {:?}", parent, name);
         if let Some(name) = name.to_str() {
-
             // If swap then remove swap file
             if name.contains("swp") {
                 self.swap_files.remove(name);
                 reply.ok();
             }
-            
         } else {
             reply.error(ENOENT);
         }
-        
-    }
-}
-
-fn create_file_attr(inode: &KubeFSInode) -> FileAttr {
-    FileAttr {
-        ino: inode.ino,
-        size: 10000,
-        blocks: 0,
-        atime: CREATE_TIME,
-        mtime: CREATE_TIME,
-        ctime: CREATE_TIME,
-        crtime: CREATE_TIME,
-        kind: match inode.level {
-            KubeFSLevel::File => FileType::RegularFile,
-            _ => FileType::Directory,
-        },
-        perm: match inode.level {
-            KubeFSLevel::File => 0o644,
-            _ => 0o755,
-        },
-        nlink: 2,
-        uid: get_current_uid(),
-        gid: get_current_gid(),
-        rdev: 0,
-        flags: 0,
     }
 }

@@ -27,7 +27,6 @@ const KUBEFS_OBJECTS: [&str; 7] = [
 #[derive(Debug)]
 pub enum KubeFSInodeError {
     MissingInode,
-    NotAFile,
 }
 
 impl Error for KubeFSInodeError {}
@@ -53,6 +52,13 @@ pub trait K8sInteractions {
         namespace: &str,
         object_name: &str,
     ) -> Result<Vec<String>, anyhow::Error>;
+    fn update_object(
+        &mut self,
+        name: &str,
+        namespace: &str,
+        object_name: &str,
+        data: &str,
+    ) -> Result<(), anyhow::Error>;
     fn get_object_data_as_yaml(
         &mut self,
         name: &str,
@@ -231,8 +237,31 @@ impl KubeFSINodes {
         Ok(())
     }
 
-    pub fn update_object(&mut self, name: &str, parent_ino: &u64) -> anyhow::Result<()> {
-        unimplemented!()
+    pub fn update_object(&mut self, ino: &u64, data: &str) -> anyhow::Result<()> {
+        let inode = self
+            .get_inode(&ino)
+            .ok_or(KubeFSInodeError::MissingInode)?
+            .clone();
+
+        match inode.level {
+            KubeFSLevel::File => {
+                let object = self
+                    .get_inode(&inode.parent.ok_or(KubeFSInodeError::MissingInode)?)
+                    .ok_or(KubeFSInodeError::MissingInode)?
+                    .clone();
+
+                let namespace = self
+                    .get_inode(&object.parent.ok_or(KubeFSInodeError::MissingInode)?)
+                    .ok_or(KubeFSInodeError::MissingInode)?
+                    .clone();
+
+                self.client
+                    .update_object(&inode.name, &namespace.name, &object.name, data)?;
+            }
+            _ => {}
+        }
+
+        Ok(())
     }
 
     pub fn delete_object(&mut self, name: &str, parent_ino: &u64) -> anyhow::Result<()> {
@@ -484,7 +513,7 @@ mod tests {
         let client = MockClient::new();
         let mut inodes = KubeFSINodes::new(Box::new(client));
 
-        inodes.create_object("test", &1, vec![])?;
+        inodes.create_object("test", &1, &Vec::new())?;
 
         Ok(())
     }
@@ -536,6 +565,16 @@ mod tests {
         }
 
         fn create_namespace(&mut self, _name: &str) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        fn update_object(
+            &mut self,
+            name: &str,
+            namespace: &str,
+            object_name: &str,
+            data: &str,
+        ) -> Result<(), anyhow::Error> {
             Ok(())
         }
 
