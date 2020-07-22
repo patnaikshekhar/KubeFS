@@ -1,7 +1,7 @@
 .PHONY: build, run
 
 run: build
-	./target/debug/kubefs $$HOME/kubefstest
+	RUST_LOG=info ./target/debug/kubefs $$HOME/kubefstest
 
 build:
 	cargo build

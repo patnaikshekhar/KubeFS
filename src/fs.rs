@@ -7,6 +7,7 @@ use fuse::{
     ReplyEntry, ReplyWrite, Request,
 };
 use libc::ENOENT;
+use log::info;
 use std::{collections::HashMap, ffi::OsStr};
 use time::Timespec;
 use users::{get_current_gid, get_current_uid};
@@ -99,7 +100,7 @@ const CREATE_TIME: Timespec = Timespec {
 
 impl Filesystem for KubeFS {
     fn lookup(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
-        println!(
+        info!(
             "Lookup called with parent = {} and name = {:?}",
             parent, name
         );
@@ -135,7 +136,7 @@ impl Filesystem for KubeFS {
     }
 
     fn getattr(&mut self, _req: &Request, ino: u64, reply: ReplyAttr) {
-        println!("getattr called with ino = {}", ino);
+        info!("getattr called with ino = {}", ino);
 
         let inode = self.inodes.get_inode(&ino);
 
@@ -154,7 +155,7 @@ impl Filesystem for KubeFS {
         _size: u32,
         reply: ReplyData,
     ) {
-        println!("read called with ino = {}", ino);
+        info!("read called with ino = {}", ino);
 
         let data = self.inodes.get_file_contents(&ino);
 
@@ -172,7 +173,7 @@ impl Filesystem for KubeFS {
         offset: i64,
         mut reply: ReplyDirectory,
     ) {
-        println!("readdir called with ino = {}", ino);
+        info!("readdir called with ino = {}", ino);
         let res = self.inodes.fetch_child_nodes_for_node(&ino);
 
         match res {
@@ -238,7 +239,7 @@ impl Filesystem for KubeFS {
         _flags: u32,
         reply: ReplyWrite,
     ) {
-        println!(
+        info!(
             "Write called with ino = {}, data = {:?}, fh = {}",
             ino,
             data.to_ascii_lowercase(),
@@ -265,7 +266,7 @@ impl Filesystem for KubeFS {
         _flags: u32,
         reply: ReplyCreate,
     ) {
-        println!("Create called with parent = {}, name = {:?}", parent, name);
+        info!("Create called with parent = {}, name = {:?}", parent, name);
 
         if let Some(name) = name.to_str() {
             // If swap then add to swap files
@@ -280,7 +281,7 @@ impl Filesystem for KubeFS {
     }
 
     fn unlink(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEmpty) {
-        println!("Unlink called with parent = {}, name = {:?}", parent, name);
+        info!("Unlink called with parent = {}, name = {:?}", parent, name);
         if let Some(name) = name.to_str() {
             // If swap then remove swap file
             if name.contains("swp") {

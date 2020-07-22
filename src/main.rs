@@ -8,6 +8,7 @@ use kube_client::KubeClient;
 use std::ffi::OsStr;
 
 fn main() {
+    env_logger::init();
     let kube = KubeClient::new();
 
     // Parse command line arguments
