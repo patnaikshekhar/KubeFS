@@ -220,7 +220,7 @@ impl KubeFSINodes {
         &mut self,
         name: &str,
         parent_ino: &u64,
-        data: &[u8],
+        _data: &[u8],
     ) -> anyhow::Result<()> {
         let inode = self
             .get_inode(&parent_ino)

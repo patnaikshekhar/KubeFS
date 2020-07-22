@@ -7,7 +7,7 @@ use fuse::{
     ReplyEntry, ReplyWrite, Request,
 };
 use libc::ENOENT;
-use log::info;
+use log::{info, error};
 use std::{collections::HashMap, ffi::OsStr};
 use time::Timespec;
 use users::{get_current_gid, get_current_uid};
@@ -21,7 +21,6 @@ const SWAP_FILE_START_INO: u64 = 1000000;
 
 struct SwapFile {
     name: String,
-    data: Vec<u8>,
     ino: u64,
 }
 
@@ -39,7 +38,6 @@ impl KubeFS {
             name.clone(),
             SwapFile {
                 name: name.clone(),
-                data: vec![],
                 ino: SWAP_FILE_START_INO + (self.swap_files.len() as u64),
             },
         );
@@ -251,7 +249,10 @@ impl Filesystem for KubeFS {
         if let Ok(data) = d {
             // Find ino in nodes
             // Write to K8s
-            self.inodes.update_object(&ino, data);
+            match self.inodes.update_object(&ino, data) {
+                Ok(_) => info!("write - update completed for ino {}", ino),
+                Err(e) => error!("Error updating ino {}", e)
+            };
         }
 
         reply.written(data.len() as u32);
