@@ -13,6 +13,4 @@ kubefs <mountpath>
 - Delete namespace with **rmdir**
 - Update manifests by using **vim** or **nano**
 
-# Demo
-
-*Coming Soon*
+[![Demo](https://img.youtube.com/vi/cPuOBHO8Ajg/0.jpg)](https://youtu.be/cPuOBHO8Ajg)
