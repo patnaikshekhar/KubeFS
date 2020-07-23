@@ -4,7 +4,9 @@ A FUSE filesystem for Kubernetes. Lets you mount your kubernetes cluster as a fi
 
 ## Usage
 
+```bash
 kubefs <mountpath>
+```
 
 ## Features
 - Lists namespaces, pods, deployments, configmaps, etc using **ls**
