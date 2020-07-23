@@ -5,3 +5,6 @@ run: build
 
 build:
 	cargo build
+
+install: build
+	cp ./target/debug/kubefs /usr/local/bin
